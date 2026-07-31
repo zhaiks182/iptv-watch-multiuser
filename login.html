@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>IPTV·WATCH — Iniciar sesión</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#0F1720;
+    --panel:#16212D;
+    --steel:#28394A;
+    --steel-light:#3E5266;
+    --paper:#E9EEF3;
+    --paper-dim:#8DA0B3;
+    --paper-dimmer:#5D7085;
+    --teal:#34C3A6;
+    --red:#E8615D;
+    --radius:10px;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;height:100%;}
+  body{
+    background:
+      radial-gradient(ellipse 900px 500px at 15% -10%, rgba(52,195,166,0.07), transparent),
+      radial-gradient(ellipse 700px 500px at 100% 0%, rgba(242,169,60,0.06), transparent),
+      var(--ink);
+    color:var(--paper);
+    font-family:'Inter',sans-serif;
+    -webkit-font-smoothing:antialiased;
+    min-height:100vh;
+    display:flex;align-items:center;justify-content:center;
+    padding:20px;
+  }
+  .login-box{
+    background:var(--panel);border:1px solid var(--steel);border-radius:var(--radius);
+    padding:32px;max-width:360px;width:100%;
+  }
+  .login-logo{display:block;height:40px;width:auto;margin:0 auto 26px;}
+  .login-title{
+    font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:15px;
+    text-align:center;color:var(--paper-dim);margin:-14px 0 24px;
+  }
+  .field{display:flex;flex-direction:column;gap:6px;margin-bottom:16px;}
+  .field label{font-size:11px;text-transform:uppercase;letter-spacing:0.06em;color:var(--paper-dimmer);}
+  .field input{
+    background:var(--ink);border:1px solid var(--steel);color:var(--paper);
+    padding:10px 12px;border-radius:7px;font-size:14px;font-family:'Inter',sans-serif;
+  }
+  .field input:focus{outline:2px solid var(--teal);outline-offset:1px;border-color:var(--teal);}
+  .login-btn{
+    width:100%;background:var(--teal);color:var(--ink);border:none;border-radius:7px;
+    padding:11px 18px;font-weight:600;font-size:14px;cursor:pointer;margin-top:8px;transition:.15s;
+  }
+  .login-btn:hover{filter:brightness(1.08);}
+  .login-btn:disabled{opacity:.6;cursor:not-allowed;}
+  .login-error{
+    background:rgba(232,97,93,0.1);border:1px solid rgba(232,97,93,0.4);color:var(--red);
+    font-size:12.5px;padding:10px 12px;border-radius:7px;margin-bottom:16px;display:none;
+  }
+  .register-link{
+    text-align:center;font-size:12.5px;color:var(--paper-dimmer);margin-top:18px;
+  }
+  .register-link a{color:var(--teal);text-decoration:none;font-weight:600;}
+  .register-link a:hover{text-decoration:underline;}
+</style>
+</head>
+<body>
+  <div class="login-box">
+    <img class="login-logo" src="logo.png" alt="IPTV·WATCH">
+    <div class="login-title">Panel de monitoreo</div>
+    <div class="login-error" id="loginError"></div>
+    <form id="loginForm">
+      <div class="field">
+        <label>Usuario</label>
+        <input type="text" id="username" autocomplete="username" required autofocus>
+      </div>
+      <div class="field">
+        <label>Contraseña</label>
+        <input type="password" id="password" autocomplete="current-password" required>
+      </div>
+      <div id="turnstileContainer" style="margin-bottom:16px;"></div>
+      <button type="submit" class="login-btn" id="loginBtn">Iniciar sesión</button>
+    </form>
+    <div class="register-link">¿No tienes cuenta? <a href="register.html">Crear cuenta</a></div>
+  </div>
+
+<script>
+  let turnstileEnabled = false;
+  let turnstileToken = '';
+  let turnstileWidgetId = null;
+
+  // Si un admin habilitó el captcha para login (api/app_settings.php), se
+  // carga el script de Turnstile y se renderiza el widget de forma explícita
+  // (turnstile.render), guardando el token en "turnstileToken" mediante sus
+  // propios callbacks. NO se usa turnstile.getResponse() al enviar el
+  // formulario: llamarlo justo en el submit puede leer un token ya vencido
+  // (ej. tras un turnstile.reset() tras un intento fallido anterior) mientras
+  // el widget todavía muestra visualmente el check verde del intento previo,
+  // dando un falso "completa la verificación" aunque se vea resuelto.
+  (async () => {
+    try {
+      const settings = await fetch('api/app_settings.php', { credentials: 'same-origin' }).then(r => r.json());
+      if (settings.captcha_required && settings.turnstile_site_key) {
+        turnstileEnabled = true;
+        const script = document.createElement('script');
+        script.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js';
+        script.async = true;
+        script.defer = true;
+        script.onload = () => {
+          turnstileWidgetId = turnstile.render('#turnstileContainer', {
+            sitekey: settings.turnstile_site_key,
+            callback: (token) => { turnstileToken = token; },
+            'expired-callback': () => { turnstileToken = ''; },
+            'error-callback': () => { turnstileToken = ''; },
+          });
+        };
+        document.head.appendChild(script);
+      }
+    } catch (e) {
+      console.error('No se pudo cargar la configuración de captcha:', e);
+    }
+  })();
+
+  document.getElementById('loginForm').addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    const btn = document.getElementById('loginBtn');
+    const errorBox = document.getElementById('loginError');
+    errorBox.style.display = 'none';
+
+    if (turnstileEnabled && !turnstileToken) {
+      errorBox.textContent = 'Completa la verificación de "no soy un robot".';
+      errorBox.style.display = 'block';
+      return;
+    }
+
+    btn.disabled = true;
+    btn.textContent = 'Ingresando…';
+    try {
+      const r = await fetch('api/login.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({
+          username: document.getElementById('username').value.trim(),
+          password: document.getElementById('password').value,
+          turnstile_token: turnstileToken,
+        }),
+      });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(data.error || 'Error al iniciar sesión.');
+      window.location.href = 'index.html';
+    } catch (e) {
+      errorBox.textContent = e.message;
+      errorBox.style.display = 'block';
+      turnstileToken = '';
+      if (typeof turnstile !== 'undefined' && turnstileWidgetId !== null) turnstile.reset(turnstileWidgetId);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Iniciar sesión';
+    }
+  });
+</script>
+</body>
+</html>

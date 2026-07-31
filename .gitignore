@@ -1,0 +1,16 @@
+# Credenciales reales del servidor (se genera con install.sh a partir de
+# config.example.php) — nunca debe subirse con datos reales.
+config.php
+
+# Log del cron generado en producción
+cron/cron.log
+
+# Backups locales
+logo_original_backup.png
+
+# Archivos de depuración temporales
+_tmp_*
+
+# Basura de sistema operativo
+.DS_Store
+Thumbs.db
