@@ -132,8 +132,7 @@ iptv-watch-multiuser/
 │   ├── cache/                     access by install.sh (Apache `Require all
 │   │                                denied`): cached logo-source indexes and
 │   └── m3u/                       reconstructed M3U files from manual uploads
-├── iptv-watch-dashboard.html    Frontend, already wired to the API (installed as
-│                                  index.html — see Deploying updates below)
+├── index.html                    Frontend, already wired to the API
 ├── login.html                   Login page (same visual design as the dashboard)
 ├── register.html                 Self-service registration page
 ├── logo.png                     Brand logo shown in the header (static asset)
@@ -556,23 +555,12 @@ XUI·ONE server and push detected channels there.
 
 ## Deploying updates
 
-`install.sh` copies `iptv-watch-dashboard.html` to the server **as
-`index.html`** (see [Installation](#installation) above) — Apache's default
-`DirectoryIndex` serves `index.html` first when a browser requests `/`.
-
-**When redeploying a change to the dashboard after the initial install, copy
-it to the server's `index.html`, not to a file named
-`iptv-watch-dashboard.html`.** Updating the latter (or any other name) has no
-effect on what visitors actually load, since it isn't what `/` resolves to —
-it'll sit there unused while the site keeps serving the old cached-looking
-version, which looks exactly like a browser-caching problem but isn't one.
-Don't keep both a same-named copy and `index.html` on the server at once
-either; pick `index.html` as the single deployed file so there's no drift
-between two copies of the same page.
-
-The rest of the backend (`api/*.php`, `includes/*.php`, `cron/*.php`) has no
-such gotcha — deploy those files under their own real names, same as in this
-repository.
+`install.sh` copies `index.html` to the server as `index.html` — Apache's
+default `DirectoryIndex` serves it first when a browser requests `/`. When
+redeploying a change to the dashboard after the initial install, copy it to
+the server under the same name (`index.html`), same as the rest of the
+backend (`api/*.php`, `includes/*.php`, `cron/*.php`), which all deploy
+under their own real names too.
 
 ## Security notes
 

@@ -19,7 +19,7 @@
  * peticiones, aunque el logo en sí exista y cargue bien en un navegador
  * normal. En vez de validar server-side, cada tarjeta de resultado en el
  * navegador se oculta sola si la imagen falla al cargar (evento `error`
- * del <img>, ver iptv-watch-dashboard.html) — la validación real ocurre en
+ * del <img>, ver index.html) — la validación real ocurre en
  * el navegador de cada usuario, no en este servidor.
  */
 

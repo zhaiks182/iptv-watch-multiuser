@@ -192,7 +192,7 @@ if ($action === 'bulk_auto_assign_from_search') {
     if ($categoryId) {
         // El botón por categoría manda category_id y no provider_id —
         // son alcances independientes, no se combinan (ver
-        // iptv-watch-dashboard.html: runAutoAssignLogos envía uno u otro).
+        // index.html: runAutoAssignLogos envía uno u otro).
         $sql .= " AND category_id = ?";
         $params[] = $categoryId;
     } elseif ($providerId) {
