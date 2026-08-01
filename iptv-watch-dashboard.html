@@ -3565,6 +3565,7 @@
     const server_ids = xuiBulkGetServerIds();
     const on_demand = xuiBulkGetOnDemand();
     const llod = xuiBulkGetLlod();
+    const touchedXuiCategoryIds = [];
 
     for (const cat of xuiBulkCategoriesCache) {
       const activeCount = cat.channels.filter(ch => ch.status === 'active').length;
@@ -3598,6 +3599,9 @@
         if (data.bouquet_still_failed_names && data.bouquet_still_failed_names.length) {
           totals.bouquetStillFailedNames.push(...data.bouquet_still_failed_names);
         }
+        if (data.xui_category_id) {
+          touchedXuiCategoryIds.push(Number(data.xui_category_id));
+        }
         line.style.color = 'var(--teal)';
         line.textContent = `${cat.name}: ${data.created} creados, ${data.updated} renombrados, ${data.unchanged} sin cambios, ${data.removed} borrados.` +
           xuiBulkServerAssignMessage(data, server_ids);
@@ -3618,6 +3622,37 @@
       (!totals.serverAssignFailed && totals.serverAssignCount ? ` Servidor/on-demand OK en ${totals.serverAssignCount} canal(es) en total.` : '') +
       (!totals.serverAssignFailed && !totals.serverAssignCount && server_ids.length ? ' Servidor/on-demand: todos los canales ya lo tenían asignado.' : '');
     progress.appendChild(summary);
+
+    if (touchedXuiCategoryIds.length) {
+      const sortBtn = document.createElement('button');
+      sortBtn.className = 'chip-btn';
+      sortBtn.style.marginTop = '10px';
+      sortBtn.textContent = 'Ordenar canales A-Z';
+      sortBtn.addEventListener('click', async () => {
+        sortBtn.disabled = true;
+        sortBtn.textContent = 'Ordenando…';
+        const msg = document.createElement('div');
+        msg.style.marginTop = '6px';
+        msg.style.fontSize = '12px';
+        progress.appendChild(msg);
+        try {
+          const uniqueIds = [...new Set(touchedXuiCategoryIds)];
+          const data = await apiPost('xui_channel_order.php', {
+            action: 'sort_categories_az',
+            category_ids: uniqueIds,
+          });
+          msg.style.color = 'var(--teal)';
+          msg.textContent = `Listo: ${data.sorted_count} canal(es) reordenados alfabéticamente.`;
+        } catch (e) {
+          msg.style.color = 'var(--red)';
+          msg.textContent = `No se pudo ordenar: ${e.message}`;
+        } finally {
+          sortBtn.disabled = false;
+          sortBtn.textContent = 'Ordenar canales A-Z';
+        }
+      });
+      progress.appendChild(sortBtn);
+    }
 
     confirmBtn.disabled = false;
     cancelBtn.disabled = false;

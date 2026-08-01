@@ -607,3 +607,216 @@ function xui_session_assign_batch_using_panel(array $panel, array $streamIds, ar
 
     return ['ok' => true, 'skipped' => false, 'error' => null, 'results' => $results];
 }
+
+/**
+ * "Channel Order" del panel (botón "A to Z"), reversado igual que el resto
+ * de este archivo: NO existe en la API pública (api_key) — el panel guarda
+ * UN SOLO orden global por tipo de contenido (streams/movies/series/radio),
+ * mezclando TODAS las categorías live en una sola lista. La página
+ * {panel_url}/{session_access_code}/channel_order tiene 4 pares de
+ * <select multiple id="sort_<tipo>_l"/"sort_<tipo>_r">: el botón "A to Z"
+ * (función JS AtoZ()) ordena SOLO la lista "_l" (por texto, case-insensitive)
+ * y copia ese mismo HTML a "_r" (que es puramente un espejo visual, nunca se
+ * lee al guardar). Al hacer submit, el JS junta las 4 listas "_l" (stream,
+ * movie, series, radio, EN ESE ORDEN) en un solo arreglo y lo manda como
+ * "stream_order_array" (JSON) a post.php?action=channel_order&referer= —
+ * sin token/CSRF adicional. Por eso xui_session_save_channel_order() exige
+ * las 4 listas juntas: si se omiten movie/series/radio, el panel las
+ * interpretaría como "vaciar" esas listas (no es un update parcial, mismo
+ * patrón que server_tree_data/bouquets en el resto de este archivo).
+ */
+function xui_session_get_channel_order($ch, string $panelUrl, string $sessionAccessCode): array
+{
+    $url = rtrim($panelUrl, '/') . '/' . trim($sessionAccessCode, '/') . '/channel_order';
+    curl_setopt_array($ch, [
+        CURLOPT_URL => $url,
+        CURLOPT_HTTPGET => true,
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT => 30,
+    ]);
+    $html = curl_exec($ch);
+    $err = curl_error($ch);
+    if ($html === false) {
+        return ['ok' => false, 'order' => [], 'error' => 'No se pudo leer el orden de canales: ' . $err];
+    }
+    return xui_session_parse_channel_order_html($html);
+}
+
+function xui_session_parse_channel_order_html(string $html): array
+{
+    if (stripos($html, 'sort_stream_l') === false) {
+        return ['ok' => false, 'order' => [], 'error' => 'No se encontró la página de orden de canales (sesión inválida o vista distinta a la esperada).'];
+    }
+
+    libxml_use_internal_errors(true);
+    $dom = new DOMDocument();
+    $dom->loadHTML($html);
+    libxml_clear_errors();
+    $xpath = new DOMXPath($dom);
+
+    $readList = function (string $selectId) use ($xpath): array {
+        $ids = [];
+        $select = $xpath->query("//select[@id='$selectId']")->item(0);
+        if (!$select) {
+            return $ids;
+        }
+        foreach ($xpath->query('.//option', $select) as $opt) {
+            $ids[] = $opt->getAttribute('value');
+        }
+        return $ids;
+    };
+
+    return [
+        'ok' => true,
+        'error' => null,
+        'order' => [
+            'stream' => $readList('sort_stream_l'),
+            'movie' => $readList('sort_movie_l'),
+            'series' => $readList('sort_series_l'),
+            'radio' => $readList('sort_radio_l'),
+        ],
+    ];
+}
+
+/**
+ * Guarda un nuevo orden global (ver nota de arriba: SIEMPRE hay que mandar
+ * las 4 listas juntas, aunque solo se haya modificado "stream"). $order
+ * debe traer las 4 claves (stream/movie/series/radio), cada una un arreglo
+ * de ids en el orden deseado — normalmente se parte de
+ * xui_session_get_channel_order() y solo se reordena la clave que interesa.
+ */
+function xui_session_save_channel_order($ch, string $panelUrl, string $sessionAccessCode, array $order): array
+{
+    $combined = array_merge(
+        array_values($order['stream'] ?? []),
+        array_values($order['movie'] ?? []),
+        array_values($order['series'] ?? []),
+        array_values($order['radio'] ?? [])
+    );
+    $post = ['stream_order_array' => json_encode($combined)];
+
+    $url = rtrim($panelUrl, '/') . '/' . trim($sessionAccessCode, '/') . '/post.php?action=channel_order&referer=';
+    curl_setopt_array($ch, [
+        CURLOPT_URL => $url,
+        CURLOPT_POST => true,
+        CURLOPT_POSTFIELDS => $post,
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT => 30,
+    ]);
+    $raw = curl_exec($ch);
+    $err = curl_error($ch);
+    if ($raw === false) {
+        return ['ok' => false, 'error' => 'No se pudo guardar el nuevo orden (sesión): ' . $err];
+    }
+    $json = json_decode($raw, true);
+    if (!is_array($json) || empty($json['result'])) {
+        return ['ok' => false, 'error' => 'El panel no confirmó el guardado del nuevo orden de canales.'];
+    }
+    return ['ok' => true, 'error' => null];
+}
+
+/**
+ * Clave de comparación para ordenar nombres de canal A-Z: quita un sufijo
+ * final entre corchetes (ej. "AXN [Vodafone ES]" -> "AXN") antes de
+ * comparar, porque "[" pesa más que las letras en ASCII y por eso el
+ * ordenamiento por texto completo (el que hace el botón "A to Z" nativo del
+ * panel) deja canales como "AXN Movies [Vodafone ES]" ANTES que
+ * "AXN [Vodafone ES]" — no es el orden que un humano espera. Solo afecta la
+ * comparación; el nombre real del canal no se toca.
+ */
+function xui_channel_sort_key(string $name): string
+{
+    $stripped = preg_replace('/\s*\[[^\]]*\]\s*$/', '', trim($name));
+    return mb_strtoupper(trim($stripped));
+}
+
+/**
+ * Ordena alfabéticamente (A-Z, mismo criterio que el botón "A to Z" del
+ * panel: comparación case-insensitive por nombre visible) los canales EN
+ * VIVO de una o más categorías XUI·ONE, SIN afectar el orden ni la
+ * agrupación de las demás categorías (ni de movies/series/radio, que se
+ * reenvían intactas) — y SIN tocar nada de la herramienta "Categories"
+ * (orden/nombre de categorías), solo el "Channel Order" (orden de canales).
+ *
+ * Cómo se logra sin desordenar el resto: el orden global de "streams" es
+ * UNA sola lista que mezcla todas las categorías. Se recorren las
+ * posiciones tal cual están y se anota en qué posiciones aparece un canal
+ * de CUALQUIERA de las categorías pedidas (esas posiciones, como conjunto,
+ * nunca cambian — solo se decide qué canal va en cada una); todos los ids
+ * encontrados en esas posiciones se juntan en UN SOLO grupo y se ordenan
+ * por nombre entre sí (no por categoría), para que quede una sola
+ * secuencia A-Z continua en vez de bloques separados por categoría. Los
+ * canales que no son de ninguna categoría pedida nunca cambian de posición
+ * ni de vecino.
+ */
+function xui_session_sort_live_categories_az(array $panel, array $xuiCategoryIds): array
+{
+    if (empty($xuiCategoryIds) || empty($panel['panel_username']) || empty($panel['panel_password_enc'])) {
+        return ['ok' => true, 'skipped' => true, 'error' => null, 'sorted_count' => 0];
+    }
+    require_once __DIR__ . '/Crypto.php';
+    $password = xui_decrypt($panel['panel_password_enc']);
+    if ($password === null) {
+        return ['ok' => false, 'skipped' => false, 'error' => 'No se pudo descifrar la contraseña de sesión del panel.', 'sorted_count' => 0];
+    }
+
+    // Nombre + categorías de cada canal, vía api_key (fuente de verdad para
+    // comparar nombres y saber a qué categoría pertenece cada id).
+    $streamsRes = xui_call_all_pages($panel['panel_url'], $panel['access_code'], $panel['api_key'], 'get_streams');
+    if (!$streamsRes['ok']) {
+        return ['ok' => false, 'skipped' => false, 'error' => 'No se pudo leer los canales del panel: ' . ($streamsRes['error'] ?? ''), 'sorted_count' => 0];
+    }
+    $nameById = [];
+    $catIdsById = [];
+    foreach (($streamsRes['json']['data'] ?? []) as $s) {
+        $id = (string)($s['id'] ?? '');
+        if ($id === '') {
+            continue;
+        }
+        $nameById[$id] = $s['stream_display_name'] ?? '';
+        $catIdsById[$id] = array_map('strval', json_decode($s['category_id'] ?? '[]', true) ?: []);
+    }
+
+    $login = xui_session_login($panel['panel_url'], $panel['session_access_code'], $panel['panel_username'], $password);
+    if (!$login['ok']) {
+        return ['ok' => false, 'skipped' => false, 'error' => 'Login de sesión falló: ' . $login['error'], 'sorted_count' => 0];
+    }
+
+    $current = xui_session_get_channel_order($login['ch'], $panel['panel_url'], $panel['session_access_code']);
+    if (!$current['ok']) {
+        xui_session_cleanup($login['ch']);
+        return ['ok' => false, 'skipped' => false, 'error' => $current['error'], 'sorted_count' => 0];
+    }
+    $streamOrder = $current['order']['stream'];
+
+    $targetSet = array_map('strval', $xuiCategoryIds);
+    $positions = []; // posiciones (dentro de $streamOrder) de CUALQUIER canal de las categorías pedidas
+    foreach ($streamOrder as $pos => $id) {
+        foreach ($catIdsById[(string)$id] ?? [] as $cid) {
+            if (in_array($cid, $targetSet, true)) {
+                $positions[] = $pos;
+                break; // un canal solo cuenta una vez aunque esté en varias categorías pedidas
+            }
+        }
+    }
+
+    $ids = array_map(fn($p) => $streamOrder[$p], $positions);
+    usort($ids, function ($a, $b) use ($nameById) {
+        $an = xui_channel_sort_key($nameById[(string)$a] ?? '');
+        $bn = xui_channel_sort_key($nameById[(string)$b] ?? '');
+        return $an <=> $bn;
+    });
+    foreach ($positions as $i => $pos) {
+        $streamOrder[$pos] = $ids[$i];
+    }
+    $sortedCount = count($ids);
+
+    $current['order']['stream'] = $streamOrder;
+    $save = xui_session_save_channel_order($login['ch'], $panel['panel_url'], $panel['session_access_code'], $current['order']);
+    xui_session_cleanup($login['ch']);
+
+    if (!$save['ok']) {
+        return ['ok' => false, 'skipped' => false, 'error' => $save['error'], 'sorted_count' => 0];
+    }
+    return ['ok' => true, 'skipped' => false, 'error' => null, 'sorted_count' => $sortedCount];
+}
