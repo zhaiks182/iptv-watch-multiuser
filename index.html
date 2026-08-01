@@ -1416,6 +1416,15 @@
     return String(str).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   }
 
+  // Logos que no son https:// se sirven vía api/logo_proxy.php: el navegador
+  // auto-sube <img src="http://..."> a https:// en una página https, y si el
+  // host de origen no tiene TLS real ahí la carga falla directo (sin volver a
+  // intentar por http) — el proxy evita eso descargando del lado del servidor.
+  function logoDisplayUrl(channelId, logoUrl) {
+    if (!logoUrl) return '';
+    return /^https:\/\//i.test(logoUrl) ? logoUrl : `api/logo_proxy.php?channel_id=${channelId}`;
+  }
+
   function toDate(str) {
     if (!str) return null;
     return new Date(str.replace(' ', 'T'));
@@ -1759,7 +1768,7 @@
       <span class="ch-status ${statusClass}"></span>
       <span class="ch-name">${escapeHtml(ch.name)}</span>
       ${tag}
-      ${ch.logo_url ? `<img class="ch-logo-thumb" src="${escapeHtml(ch.logo_url)}" alt="" loading="lazy">` : ''}
+      ${ch.logo_url ? `<img class="ch-logo-thumb" src="${escapeHtml(logoDisplayUrl(ch.id, ch.logo_url))}" alt="" loading="lazy">` : ''}
       <button class="ch-logo-btn ${ch.logo_url ? 'has-logo' : ''}" data-id="${ch.id}" data-name="${escapeHtml(ch.name)}" data-logo="${escapeHtml(ch.logo_url || '')}" title="${ch.logo_url ? 'Cambiar logo' : 'Este canal no tiene logo — buscar uno'}">🖼️</button>
       ${streamUrl ? `<a class="ch-vlc-btn" href="api/export.php?channel_id=${ch.id}" title="Descarga un .m3u de este canal — ábrelo para reproducirlo en VLC" onclick="event.stopPropagation()">${DOWNLOAD_ICON}</a>` : ''}
       <button class="ch-url-btn" data-name="${escapeHtml(ch.name)}" data-url="${escapeHtml(streamUrl)}">URL M3U</button>
@@ -2268,7 +2277,7 @@
     document.getElementById('logoSearchResults').innerHTML = '';
     const currentBox = document.getElementById('logoSearchCurrent');
     if (currentLogoUrl) {
-      document.getElementById('logoSearchCurrentImg').src = currentLogoUrl;
+      document.getElementById('logoSearchCurrentImg').src = logoDisplayUrl(channelId, currentLogoUrl);
       currentBox.style.display = 'flex';
     } else {
       currentBox.style.display = 'none';
