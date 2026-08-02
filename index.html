@@ -1376,10 +1376,21 @@
   // oscuro) — solo con el botón "Cerrar" o la "X". Se reportó como bug: un
   // clic accidental fuera de la ventana (ej. cerca de la barra de scroll)
   // cerraba el modal sin aviso, perdiendo el progreso o los datos cargados.
+  const overlayCloseFns = new Map();
   function wireOverlayClose(overlayId, closeFn) {
-    // no-op intencional: se conserva la función (y su llamada en cada modal)
-    // por si se decide reactivar este comportamiento más adelante.
+    // Sigue sin cerrar al hacer clic afuera (ver nota de arriba) — esto solo
+    // registra la función de cierre de cada modal para poder usarla con la
+    // tecla Escape (ver el listener de "keydown" más abajo), que sí es un
+    // gesto intencional del usuario y no un clic accidental.
+    overlayCloseFns.set(overlayId, closeFn);
   }
+  document.addEventListener('keydown', (ev) => {
+    if (ev.key !== 'Escape') return;
+    const openOverlay = document.querySelector('.modal-overlay:not(.hidden)');
+    if (!openOverlay || openOverlay.dataset.busy === '1') return;
+    const closeFn = overlayCloseFns.get(openOverlay.id);
+    if (closeFn) closeFn();
+  });
 
   // Marca un modal como "ocupado" mientras corre una operación larga (ej.
   // importar/eliminar todas las categorías) para que no se pueda cerrar por
@@ -2003,6 +2014,7 @@
   document.getElementById('m3uUploadBtn').addEventListener('click', m3uUploadOpen);
   document.getElementById('m3uUploadModalClose').addEventListener('click', m3uUploadClose);
   document.getElementById('m3uUploadModalCloseX').addEventListener('click', m3uUploadClose);
+  wireOverlayClose('m3uUploadModal', m3uUploadClose);
   document.getElementById('m3uUploadBackBtn').addEventListener('click', () => {
     document.getElementById('m3uUploadStep1').style.display = 'block';
     document.getElementById('m3uUploadStep2').style.display = 'none';
@@ -2210,6 +2222,7 @@
     document.getElementById('imgLightbox').classList.add('hidden');
   }
   document.getElementById('imgLightbox').addEventListener('click', closeImageLightbox);
+  wireOverlayClose('imgLightbox', closeImageLightbox);
   document.getElementById('logoSearchCurrentImg').addEventListener('click', (ev) => {
     ev.stopPropagation();
     openImageLightbox(ev.target.src);
